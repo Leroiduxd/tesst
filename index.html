@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" type="text/css" href="./style.css" />
+    <title>Connect MetaMask to Smart Contract</title>
+</head>
+
+<body>
+    <div class="parent">
+        <div class="div1">
+            <h1 class="center">Connect MetaMask to a Smart Contract</h1>
+            <p class="center">Click the button to prompt MetaMask to connect</p>
+            <button onclick="connect()">Connect Wallet</button>
+            <p id="wallet-address" class="center"></p>
+        </div>
+
+        <div class="div2">
+            <h2>Set a new value in the contract:</h2>
+            <input type="number" id="valueInput" placeholder="Enter a value" />
+            <button onclick="setValue()">Set Value</button>
+
+            <h2>Get the stored value from the contract:</h2>
+            <button onclick="getValue()">Get Value</button>
+            <p id="storedValue"></p>
+        </div>
+    </div>
+
+    <script>
+        let contract;
+        let signer;
+
+        const contractAddress = '0x65DD57807AE6C8352CD4DA71BFFC10C44D3a6d94'; // Remplace par l'adresse de ton contrat déployé
+        const contractABI = [
+            // ABI du contrat SimpleStorage
+            {
+                "inputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "_value",
+                        "type": "uint256"
+                    }
+                ],
+                "name": "set",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "get",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ];
+
+        async function connect() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+                    document.getElementById('wallet-address').innerText = `Connected: ${accounts[0]}`;
+                    const provider = new ethers.providers.Web3Provider(window.ethereum);
+                    signer = provider.getSigner();
+                    contract = new ethers.Contract(contractAddress, contractABI, signer);
+                } catch (error) {
+                    console.error('Error connecting to MetaMask:', error);
+                }
+            } else {
+                alert('MetaMask is not installed. Please install MetaMask and try again.');
+            }
+        }
+
+        async function setValue() {
+            const value = document.getElementById('valueInput').value;
+            if (contract && value) {
+                try {
+                    const tx = await contract.set(value);
+                    await tx.wait();
+                    alert('Value set successfully');
+                } catch (error) {
+                    console.error('Error setting value:', error);
+                }
+            } else {
+                alert('Please enter a value and connect MetaMask.');
+            }
+        }
+
+        async function getValue() {
+            if (contract) {
+                try {
+                    const value = await contract.get();
+                    document.getElementById('storedValue').innerText = `Stored Value: ${value}`;
+                } catch (error) {
+                    console.error('Error getting value:', error);
+                }
+            } else {
+                alert('Please connect MetaMask.');
+            }
+        }
+    </script>
+
+    <!-- Ajoute Ethers.js depuis un CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.6.9/dist/ethers.umd.min.js"></script>
+
+</body>
+
+</html>
