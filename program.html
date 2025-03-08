@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Expo Pyth pour SL/TP/TargetPrice</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    .center {
+      text-align: center;
+    }
+    .section {
+      border: 1px solid #ccc;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+    }
+    label {
+      display: inline-block;
+      width: 140px;
+      margin-bottom: 5px;
+    }
+    /* Retirer les spinners par défaut */
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="text"], input[type="number"] {
+      width: 200px;
+      padding: 5px;
+      margin-bottom: 10px;
+    }
+    .num-wrapper {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .num-wrapper input {
+      margin-right: 5px;
+    }
+    .num-btn, .leverage-btn, .pct-btn {
+      padding: 4px 8px;
+      cursor: pointer;
+      margin-right: 5px;
+    }
+    button {
+      margin-top: 8px;
+      padding: 6px 12px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    #message {
+      font-weight: bold;
+      color: green;
+      text-align: center;
+      margin-top: 10px;
+    }
+    #error {
+      font-weight: bold;
+      color: red;
+      text-align: center;
+      margin-top: 10px;
+    }
+    .isShortButtons {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .data-box {
+      border: 1px solid #aaa;
+      padding: 10px;
+      margin: 10px;
+      border-radius: 6px;
+      background: #f7f7f7;
+    }
+    .price-info, .hex-data, .timestamp {
+      margin-bottom: 8px;
+    }
+    #live-data {
+      max-width: 600px;
+      margin: 0 auto;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+    /* Styles pour le toggle */
+    .toggle-button {
+      cursor: pointer;
+      padding: 10px;
+      border: 1px solid #ccc;
+      text-align: center;
+      border-radius: 5px;
+      user-select: none;
+      display: inline-block;
+      margin-bottom: 10px;
+    }
+    .toggle-button.active {
+      background-color: #e0e0e0;
+      border-color: #999;
+    }
+  </style>
+</head>
+
+<body>
+<h1>Gestion de l'expo Pyth pour SL / TP / TargetPrice</h1>
+
+<!-- Connexion MetaMask -->
+<div class="center">
+  <button onclick="connectWallet()">Connecter MetaMask</button>
+  <p id="walletAddress">Aucune adresse connectée</p>
+</div>
+<div id="message"></div>
+<div id="error"></div>
+
+<!-- isShort global -->
+<div class="isShortButtons">
+  <button onclick="setIsShortValue(true)">isShort = TRUE</button>
+  <button onclick="setIsShortValue(false)">isShort = FALSE</button>
+  <p id="isShortIndicator">isShort actuel : false</p>
+</div>
+
+<!-- Affichage du flux Pyth -->
+<div id="live-data" class="center">
+  <div class="data-box">
+    En attente du flux Pyth...
+  </div>
+</div>
+
+<!-- Toggle commun pour le mode SL/TP (Position & Order) -->
+<div class="center">
+  <div id="posSlTpToggle" class="toggle-button" data-value="off">
+    Sans SL/TP => openPosition / openLimitOrder
+  </div>
+  <p id="globalSlTpMode">Sans SL/TP</p>
+</div>
+
+<!-- DIV 1 : Position -->
+<div class="section">
+  <h2>DIV 1 : Position (Avec / Sans SL-TP)</h2>
+  <!-- On utilise le toggle commun ci-dessus -->
+  
+  <!-- SIZE + boutons rapides -->
+  <label for="pos_size">size (USDC) :</label><br>
+  <div class="num-wrapper">
+    <input type="number" id="pos_size" placeholder="2.5 => 2.5 USDC"/>
+    <!-- Boutons pour 25%, 50%, 75%, 100% du solde -->
+    <button class="pct-btn" onclick="applyPctOfBalancePos(25)">25%</button>
+    <button class="pct-btn" onclick="applyPctOfBalancePos(50)">50%</button>
+    <button class="pct-btn" onclick="applyPctOfBalancePos(75)">75%</button>
+    <button class="pct-btn" onclick="applyPctOfBalancePos(100)">100%</button>
+    <button class="num-btn" onclick="incrementNum('pos_size',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('pos_size',-1)">-1</button>
+  </div>
+
+  <!-- LEVERAGE avec boutons preset et + / - (contrainte entre 1 et 100) -->
+  <label for="pos_leverage">leverage (uint256) :</label><br>
+  <div class="num-wrapper">
+    <input type="number" id="pos_leverage" placeholder="5" value="5"/>
+    <button class="leverage-btn" onclick="setLeverage('pos_leverage',1)">1</button>
+    <button class="leverage-btn" onclick="setLeverage('pos_leverage',5)">5</button>
+    <button class="leverage-btn" onclick="setLeverage('pos_leverage',25)">25</button>
+    <button class="leverage-btn" onclick="setLeverage('pos_leverage',50)">50</button>
+    <button class="leverage-btn" onclick="incrementLeverage('pos_leverage',1)">+</button>
+    <button class="leverage-btn" onclick="incrementLeverage('pos_leverage',-1)">-</button>
+  </div>
+
+  <label for="pos_sl">SL (ex: 2718.12) :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="pos_sl" placeholder="Tapez un prix SL"/>
+    <button class="num-btn" onclick="incrementNum('pos_sl',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('pos_sl',-1)">-1</button>
+  </div>
+
+  <label for="pos_tp">TP (ex: 3000.00) :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="pos_tp" placeholder="Tapez un prix TP"/>
+    <button class="num-btn" onclick="incrementNum('pos_tp',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('pos_tp',-1)">-1</button>
+  </div>
+
+  <button onclick="openPositionAction()">Ouvrir la position</button>
+</div>
+
+<!-- DIV 2 : Limit Order -->
+<div class="section">
+  <h2>DIV 2 : Limit Order (Avec / Sans SL-TP)</h2>
+  <div style="margin-bottom:10px;">
+    <label>
+      <input type="radio" name="limitSlTpOption" value="off" checked />
+      Sans SL/TP => openLimitOrder
+    </label>
+    <label style="margin-left:20px;">
+      <input type="radio" name="limitSlTpOption" value="on" />
+      Avec SL/TP => openLimitOrderWithSlTp
+    </label>
+  </div>
+
+  <!-- SIZE + % solde -->
+  <label>size (USDC) :</label><br>
+  <div class="num-wrapper">
+    <input type="number" id="limit_size" placeholder="2.5 => 2.5 USDC" />
+    <button class="pct-btn" onclick="applyPctOfBalance(25)">25%</button>
+    <button class="pct-btn" onclick="applyPctOfBalance(50)">50%</button>
+    <button class="pct-btn" onclick="applyPctOfBalance(75)">75%</button>
+    <button class="pct-btn" onclick="applyPctOfBalance(100)">100%</button>
+    <button class="num-btn" onclick="incrementNum('limit_size',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_size',-1)">-1</button>
+  </div>
+
+  <!-- LEVERAGE -->
+  <label>leverage (uint256) :</label><br>
+  <div class="num-wrapper">
+    <input type="number" id="limit_leverage" placeholder="5" value="5" />
+    <button class="leverage-btn" onclick="setLeverage('limit_leverage',1)">1</button>
+    <button class="leverage-btn" onclick="setLeverage('limit_leverage',5)">5</button>
+    <button class="leverage-btn" onclick="setLeverage('limit_leverage',25)">25</button>
+    <button class="leverage-btn" onclick="setLeverage('limit_leverage',50)">50</button>
+    <button class="leverage-btn" onclick="incrementLeverage('limit_leverage',1)">+</button>
+    <button class="leverage-btn" onclick="incrementLeverage('limit_leverage',-1)">-</button>
+  </div>
+
+  <!-- TARGET PRICE -->
+  <label>targetPrice (ex: 2718.12) :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="limit_targetPrice" placeholder="Tapez un prix limit" />
+    <button class="num-btn" onclick="incrementNum('limit_targetPrice',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_targetPrice',-1)">-1</button>
+  </div>
+
+  <h3>Stop Loss (SL)</h3>
+  <label>SL Price :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="limit_sl" placeholder="ex: 2600.00" oninput="limitOnSlPriceChange()" />
+    <button class="num-btn" onclick="incrementNum('limit_sl',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_sl',-1)">-1</button>
+  </div>
+
+  <label>SL Profit (USDC) :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="limit_slProfitUsd" placeholder="ex: -20" oninput="limitOnSlProfitUsdChange()" />
+    <button class="num-btn" onclick="incrementNum('limit_slProfitUsd',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_slProfitUsd',-1)">-1</button>
+  </div>
+
+  <label>SL Profit (%) :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="limit_slProfitPct" placeholder="-10" oninput="limitOnSlProfitPctChange()" />
+    <button class="num-btn" onclick="incrementNum('limit_slProfitPct',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_slProfitPct',-1)">-1</button>
+  </div>
+
+  <h3>Take Profit (TP)</h3>
+  <label>TP Price :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="limit_tp" placeholder="ex: 2800.00" oninput="limitOnTpPriceChange()" />
+    <button class="num-btn" onclick="incrementNum('limit_tp',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_tp',-1)">-1</button>
+  </div>
+
+  <label>TP Profit (USDC) :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="limit_tpProfitUsd" placeholder="30" oninput="limitOnTpProfitUsdChange()" />
+    <button class="num-btn" onclick="incrementNum('limit_tpProfitUsd',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_tpProfitUsd',-1)">-1</button>
+  </div>
+
+  <label>TP Profit (%) :</label><br>
+  <div class="num-wrapper">
+    <input type="text" id="limit_tpProfitPct" placeholder="10" oninput="limitOnTpProfitPctChange()" />
+    <button class="num-btn" onclick="incrementNum('limit_tpProfitPct',1)">+1</button>
+    <button class="num-btn" onclick="incrementNum('limit_tpProfitPct',-1)">-1</button>
+  </div>
+
+  <button onclick="openLimitAction()">Ouvrir le Limit Order</button>
+</div>
+
+<!-- Ethers.js -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.6.9/dist/ethers.umd.min.js"></script>
+<script>
+  /***************************************************************
+   * 1) Paramètres Pyth : ID + expo
+   ***************************************************************/
+  const PRICE_FEED_ID = "0x0bbf28e9a841a1cc788f6a361b17ca072d0ea3098a1e5df1c3922d06719579ff";
+  const API_URL = "https://hermes.pyth.network/v2/updates/price/stream?ids[]=" + PRICE_FEED_ID;
+  
+  let latestPriceUpdate = [];
+  let pythExpo = 0; // ex: -8
+  let hasSetLimitPriceOnce = false; // Pour ne mettre le targetPrice qu'une seule fois
+  
+  function formatPrice(value, expo) {
+    return (Number(value) * Math.pow(10, expo)).toFixed(8);
+  }
+  
+  function updateDisplay(data) {
+    const parsed = data.parsed[0];
+    const binary = data.binary;
+    if (!parsed || !binary) return;
+  
+    latestPriceUpdate = binary.data.map(d => "0x" + d);
+    pythExpo = parseInt(parsed.price.expo, 10);
+  
+    const priceValue = formatPrice(parsed.price.price, parsed.price.expo);
+    const confValue  = formatPrice(parsed.price.conf, parsed.price.expo);
+    const pricePlusConf = (Number(priceValue) + Number(confValue)).toFixed(8);
+    const priceMinusConf = (Number(priceValue) - Number(confValue)).toFixed(8);
+    const pubTime = parsed.price.publish_time;
+    const slot = parsed.metadata.slot;
+  
+    if (!hasSetLimitPriceOnce) {
+      document.getElementById('limit_targetPrice').value = Number(priceValue).toFixed(2);
+      hasSetLimitPriceOnce = true;
+    }
+  
+    const html = `
+      <div class="data-box">
+        <div class="price-info">
+          <div>Price: ${priceValue}</div>
+          <div>Confidence: ±${confValue}</div>
+          <div>Price + Conf: ${pricePlusConf}</div>
+          <div>Price – Conf: ${priceMinusConf}</div>
+        </div>
+        <div class="hex-data">
+          RAW: [${latestPriceUpdate.join(", ")}]
+        </div>
+        <div class="timestamp">
+          Publ. time: ${new Date(pubTime*1000).toLocaleString()} (Slot: ${slot}), expo: ${pythExpo}
+        </div>
+      </div>
+    `;
+    document.getElementById('live-data').innerHTML = html;
+  }
+  
+  const eventSource = new EventSource(API_URL);
+  eventSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      updateDisplay(data);
+    } catch (err) {
+      console.error("Erreur parse data:", err);
+    }
+  };
+  eventSource.onerror = () => {
+    document.getElementById('live-data').innerHTML = `
+      <div class="data-box" style="color:#f44;">
+        Erreur de connexion au flux Pyth - reconnexion...
+      </div>
+    `;
+  };
+  
+  /***************************************************************
+   * 2) Connexion MetaMask + Contrat
+   ***************************************************************/
+  let signer;
+  let contract;
+  let isShortGlobal = false;
+  
+  // Contrat USDC pour récupérer le solde
+  const usdcContractAddr = "0x95CA2454a71EA272fFE543aF297fDcd877E42605";
+  const usdcAbi = [
+    {
+      "inputs": [{"internalType":"address","name":"account","type":"address"}],
+      "name":"balanceOf",
+      "outputs":[{"internalType":"uint256","name":"","type":"uint256"}],
+      "stateMutability":"view",
+      "type":"function"
+    }
+  ];
+  
+  // Contrat principal
+  const contractAddress = "0xAc51dD5ad45DC78661646F1E62aA0E8C60aF086B";
+  const contractABI = [
+    {
+      "inputs": [
+        {"internalType": "bytes32","name": "priceFeedId","type": "bytes32"},
+        {"internalType": "bytes[]","name": "priceUpdate","type": "bytes[]"},
+        {"internalType": "uint256","name": "size","type": "uint256"},
+        {"internalType": "bool","name": "isShort","type": "bool"},
+        {"internalType": "uint256","name": "leverage","type": "uint256"}
+      ],
+      "name": "openPosition",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {"internalType": "bytes32","name": "priceFeedId","type": "bytes32"},
+        {"internalType": "bytes[]","name": "priceUpdate","type": "bytes[]"},
+        {"internalType": "uint256","name": "size","type": "uint256"},
+        {"internalType": "bool","name": "isShort","type": "bool"},
+        {"internalType": "uint256","name": "leverage","type": "uint256"},
+        {"internalType": "int256","name": "sl","type": "int256"},
+        {"internalType": "int256","name": "tp","type": "int256"}
+      ],
+      "name": "openPositionWithSlTp",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {"internalType": "bytes32","name": "priceFeedId","type": "bytes32"},
+        {"internalType": "uint256","name": "size","type": "uint256"},
+        {"internalType": "bool","name": "isShort","type": "bool"},
+        {"internalType": "uint256","name": "leverage","type": "uint256"},
+        {"internalType": "int256","name": "targetPrice","type": "int256"}
+      ],
+      "name": "openLimitOrder",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {"internalType": "bytes32","name": "priceFeedId","type": "bytes32"},
+        {"internalType": "uint256","name": "size","type": "uint256"},
+        {"internalType": "bool","name": "isShort","type": "bool"},
+        {"internalType": "uint256","name": "leverage","type": "uint256"},
+        {"internalType": "int256","name": "targetPrice","type": "int256"},
+        {"internalType": "int256","name": "sl","type": "int256"},
+        {"internalType": "int256","name": "tp","type": "int256"}
+      ],
+      "name": "openLimitOrderWithSlTp",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ];
+  
+  async function connectWallet() {
+    try {
+      if (!window.ethereum) {
+        alert("MetaMask non détecté !");
+        return;
+      }
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const userAddress = accounts[0];
+      document.getElementById('walletAddress').innerText = "Connecté : " + userAddress;
+  
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      signer = provider.getSigner();
+  
+      contract = new ethers.Contract(contractAddress, contractABI, signer);
+  
+      // Récupérer le solde USDC
+      const usdcContract = new ethers.Contract(usdcContractAddr, usdcAbi, signer);
+      const rawBalance = await usdcContract.balanceOf(userAddress);
+      const balanceFloat = parseFloat(ethers.utils.formatUnits(rawBalance,6));
+  
+      setMessage("Connexion réussie. Solde USDC: " + balanceFloat.toFixed(2));
+  
+      // Pour Limit Order, par défaut 25% du solde
+      const defaultSize = balanceFloat * 0.25;
+      document.getElementById('limit_size').value = defaultSize.toFixed(2);
+    } catch (err) {
+      setError("Erreur connexion MetaMask : " + err.message);
+    }
+  }
+  
+  function setIsShortValue(val) {
+    isShortGlobal = val;
+    document.getElementById('isShortIndicator').innerText = "isShort actuel : " + isShortGlobal;
+  }
+  
+  function setMessage(msg) {
+    document.getElementById('message').innerText = msg;
+    document.getElementById('error').innerText = '';
+  }
+  function setError(msg) {
+    document.getElementById('error').innerText = msg;
+    document.getElementById('message').innerText = '';
+  }
+  
+  // parseUSDC
+  function parseUSDC(valueString) {
+    try {
+      return ethers.utils.parseUnits(valueString, 6);
+    } catch (e) {
+      console.error("Erreur parseUnits USDC:", e);
+      return ethers.BigNumber.from("0");
+    }
+  }
+  
+  // scale by pythExpo
+  function scaleByExpo(valueString) {
+    if (!valueString) return 0;
+    const valFloat = parseFloat(valueString.replace(",", "."));
+    if (isNaN(valFloat)) return 0;
+    const factor = Math.pow(10, Math.abs(pythExpo));
+    return Math.floor(valFloat * factor);
+  }
+  
+  /********************************************************************
+   * Incrémenter / décrémenter de 1
+   ********************************************************************/
+  function incrementNum(inputId, delta) {
+    const el = document.getElementById(inputId);
+    let val = parseFloat(el.value.replace(",", ".")) || 0;
+    val += delta;
+    el.value = val.toFixed(2);
+  }
+  
+  /********************************************************************
+   * Boutons preset pour leverage et vérification de la plage [1,100]
+   ********************************************************************/
+  function setLeverage(inputId, val) {
+    if(val < 1) val = 1;
+    if(val > 100) val = 100;
+    document.getElementById(inputId).value = val;
+  }
+  
+  /********************************************************************
+   * Boutons + et - pour leverage (contrainte entre 1 et 100)
+   ********************************************************************/
+  function incrementLeverage(inputId, delta) {
+    const el = document.getElementById(inputId);
+    let val = parseInt(el.value) || 1;
+    val += delta;
+    if(val < 1) val = 1;
+    if(val > 100) val = 100;
+    el.value = val;
+  }
+  
+  /********************************************************************
+   * Boutons rapides pour la taille de position (DIV 1)
+   ********************************************************************/
+  async function applyPctOfBalancePos(percent) {
+    try {
+      const accounts = await signer.provider.listAccounts();
+      if (!accounts[0]) return;
+      const userAddress = accounts[0];
+      const usdcContract = new ethers.Contract(usdcContractAddr, usdcAbi, signer);
+      const rawBalance = await usdcContract.balanceOf(userAddress);
+      const balanceFloat = parseFloat(ethers.utils.formatUnits(rawBalance,6));
+      const newSize = balanceFloat * (percent/100);
+      document.getElementById('pos_size').value = newSize.toFixed(2);
+    } catch(e) {
+      console.error("Erreur applyPctOfBalancePos:", e);
+    }
+  }
+  
+  /********************************************************************
+   * DIV 1 : openPosition / openPositionWithSlTp (utilise le toggle commun)
+   ********************************************************************/
+  async function openPositionAction() {
+    if (!contract) {
+      setError("Veuillez connecter MetaMask d'abord.");
+      return;
+    }
+    if (latestPriceUpdate.length === 0) {
+      setError("Aucune donnée Pyth reçue. Attendez quelques secondes.");
+      return;
+    }
+    const toggleDiv = document.getElementById('posSlTpToggle');
+    const modeSlTp = toggleDiv.getAttribute('data-value'); // "off" ou "on"
+    const size = parseUSDC(document.getElementById('pos_size').value);
+    const leverage = document.getElementById('pos_leverage').value;
+    const slScaled = scaleByExpo(document.getElementById('pos_sl').value);
+    const tpScaled = scaleByExpo(document.getElementById('pos_tp').value);
+  
+    try {
+      let tx;
+      if (modeSlTp === "off") {
+        tx = await contract.openPosition(
+          PRICE_FEED_ID,
+          latestPriceUpdate,
+          size,
+          isShortGlobal,
+          leverage,
+          {}
+        );
+      } else {
+        tx = await contract.openPositionWithSlTp(
+          PRICE_FEED_ID,
+          latestPriceUpdate,
+          size,
+          isShortGlobal,
+          leverage,
+          slScaled,
+          tpScaled,
+          {}
+        );
+      }
+      setMessage("Transaction envoyée : " + tx.hash);
+      await tx.wait();
+      setMessage("Transaction confirmée : " + tx.hash);
+    } catch (err) {
+      setError("Erreur openPositionAction : " + err.message);
+    }
+  }
+  
+  /********************************************************************
+   * DIV 2 : openLimitOrder / openLimitOrderWithSlTp
+   ********************************************************************/
+  async function openLimitAction() {
+    if (!contract) {
+      setError("Veuillez connecter MetaMask d'abord.");
+      return;
+    }
+    const radios = document.getElementsByName("limitSlTpOption");
+    let modeSlTp = "off";
+    for (let r of radios) {
+      if (r.checked) {
+        modeSlTp = r.value;
+        break;
+      }
+    }
+  
+    const size = parseUSDC(document.getElementById('limit_size').value);
+    const leverage = document.getElementById('limit_leverage').value;
+    const targetScaled = scaleByExpo(document.getElementById('limit_targetPrice').value);
+    const slScaled = scaleByExpo(document.getElementById('limit_sl').value);
+    const tpScaled = scaleByExpo(document.getElementById('limit_tp').value);
+  
+    try {
+      let tx;
+      if (modeSlTp === "off") {
+        tx = await contract.openLimitOrder(
+          PRICE_FEED_ID,
+          size,
+          isShortGlobal,
+          leverage,
+          targetScaled
+        );
+      } else {
+        tx = await contract.openLimitOrderWithSlTp(
+          PRICE_FEED_ID,
+          size,
+          isShortGlobal,
+          leverage,
+          targetScaled,
+          slScaled,
+          tpScaled
+        );
+      }
+      setMessage("Transaction envoyée : " + tx.hash);
+      await tx.wait();
+      setMessage("Transaction confirmée : " + tx.hash);
+    } catch (err) {
+      setError("Erreur openLimitAction : " + err.message);
+    }
+  }
+  
+  /********************************************************************
+   * Fonctions de calcul dynamique pour SL et TP (inchangées)
+   ********************************************************************/
+  function limitCalcProfitFromPrice(exitPrice) {
+    const tPrice = parseFloat(document.getElementById('limit_targetPrice').value)||0;
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||0;
+    const levVal = parseFloat(document.getElementById('limit_leverage').value)||1;
+    const notional = sizeVal * levVal;
+    if (tPrice<=0 || exitPrice<=0 || notional<=0) return 0;
+    if (!isShortGlobal) {
+      return (exitPrice - tPrice)/tPrice * notional;
+    } else {
+      return (tPrice - exitPrice)/tPrice * notional;
+    }
+  }
+  function limitCalcPriceFromProfit(profitUsd) {
+    const tPrice = parseFloat(document.getElementById('limit_targetPrice').value)||0;
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||0;
+    const levVal = parseFloat(document.getElementById('limit_leverage').value)||1;
+    const notional = sizeVal * levVal;
+    if (tPrice<=0 || notional<=0) return 0;
+    if (!isShortGlobal) {
+      return tPrice + (profitUsd * tPrice)/notional;
+    } else {
+      return tPrice - (profitUsd * tPrice)/notional;
+    }
+  }
+  
+  // SL
+  function limitOnSlPriceChange() {
+    const price = parseFloat(document.getElementById('limit_sl').value)||0;
+    const profit = limitCalcProfitFromPrice(price);
+    document.getElementById('limit_slProfitUsd').value = profit.toFixed(2);
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||1;
+    const pct = (profit/sizeVal)*100;
+    document.getElementById('limit_slProfitPct').value = pct.toFixed(2);
+  }
+  function limitOnSlProfitUsdChange() {
+    const profit = parseFloat(document.getElementById('limit_slProfitUsd').value)||0;
+    const price = limitCalcPriceFromProfit(profit);
+    document.getElementById('limit_sl').value = price.toFixed(2);
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||1;
+    const pct = (profit/sizeVal)*100;
+    document.getElementById('limit_slProfitPct').value = pct.toFixed(2);
+  }
+  function limitOnSlProfitPctChange() {
+    const pct = parseFloat(document.getElementById('limit_slProfitPct').value)||0;
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||1;
+    const profit = (pct/100)*sizeVal;
+    document.getElementById('limit_slProfitUsd').value = profit.toFixed(2);
+    const price = limitCalcPriceFromProfit(profit);
+    document.getElementById('limit_sl').value = price.toFixed(2);
+  }
+  
+  // TP
+  function limitOnTpPriceChange() {
+    const price = parseFloat(document.getElementById('limit_tp').value)||0;
+    const profit = limitCalcProfitFromPrice(price);
+    document.getElementById('limit_tpProfitUsd').value = profit.toFixed(2);
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||1;
+    const pct = (profit/sizeVal)*100;
+    document.getElementById('limit_tpProfitPct').value = pct.toFixed(2);
+  }
+  function limitOnTpProfitUsdChange() {
+    const profit = parseFloat(document.getElementById('limit_tpProfitUsd').value)||0;
+    const price = limitCalcPriceFromProfit(profit);
+    document.getElementById('limit_tp').value = price.toFixed(2);
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||1;
+    const pct = (profit/sizeVal)*100;
+    document.getElementById('limit_tpProfitPct').value = pct.toFixed(2);
+  }
+  function limitOnTpProfitPctChange() {
+    const pct = parseFloat(document.getElementById('limit_tpProfitPct').value)||0;
+    const sizeVal = parseFloat(document.getElementById('limit_size').value)||1;
+    const profit = (pct/100)*sizeVal;
+    document.getElementById('limit_tpProfitUsd').value = profit.toFixed(2);
+    const price = limitCalcPriceFromProfit(profit);
+    document.getElementById('limit_tp').value = price.toFixed(2);
+  }
+  
+  /********************************************************************
+   * Gestion du toggle commun pour SL/TP
+   ********************************************************************/
+  document.addEventListener('DOMContentLoaded', function() {
+    const toggleDiv = document.getElementById('posSlTpToggle');
+    toggleDiv.addEventListener('click', function() {
+      const currentValue = toggleDiv.getAttribute('data-value');
+      if (currentValue === 'off') {
+        toggleDiv.setAttribute('data-value', 'on');
+        toggleDiv.innerHTML = 'Avec SL/TP => openPositionWithSlTp / openLimitOrderWithSlTp';
+        toggleDiv.classList.add('active');
+        document.getElementById('globalSlTpMode').innerText = "Avec SL/TP";
+      } else {
+        toggleDiv.setAttribute('data-value', 'off');
+        toggleDiv.innerHTML = 'Sans SL/TP => openPosition / openLimitOrder';
+        toggleDiv.classList.remove('active');
+        document.getElementById('globalSlTpMode').innerText = "Sans SL/TP";
+      }
+    });
+  });
+</script>
+</body>
+</html>

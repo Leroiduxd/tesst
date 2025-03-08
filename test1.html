@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demo avec clé privée – Auto Trigger Orders sur Avalanche Fuji</title>
+  <style>
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    tr.green { background-color: lightgreen; }
+    .center { text-align: center; }
+    .parent { padding: 20px; }
+    .div1, .div2, .div3, .div4 { margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="parent">
+    <!-- Connexion via clé privée -->
+    <div class="div1">
+      <h1 class="center">Connexion via clé privée (DEMO)</h1>
+      <p class="center">Cliquez sur le bouton pour vous connecter</p>
+      <button onclick="connect()">Se connecter</button>
+      <p id="wallet-address" class="center"></p>
+    </div>
+
+    <!-- Section d'interaction manuelle (exemple pour Stop Loss) -->
+    <div class="div2">
+      <h2>Fermeture de positions (manuelle)</h2>
+      <h3>closePositionStopLoss</h3>
+      <input type="number" id="positionIdStopLoss" placeholder="Entrez l'ID de position" />
+      <button onclick="closeStopLoss()">Exécuter closePositionStopLoss</button>
+      <p id="resultStopLoss"></p>
+    </div>
+
+    <!-- Section d'affichage des données live de l'API Hermes -->
+    <div class="div3">
+      <h2>Live Price Data</h2>
+      <div id="live-data"></div>
+    </div>
+
+    <!-- Section d'affichage automatique des tableaux du contrat -->
+    <div class="div4">
+      <h2>Données du Contrat (actualisées toutes les 5 secondes)</h2>
+      <div class="table-section">
+        <h3>Liquidation Prices</h3>
+        <div id="tableLiquidation"></div>
+      </div>
+      <div class="table-section">
+        <h3>Stop Losses</h3>
+        <div id="tableStopLosses"></div>
+      </div>
+      <div class="table-section">
+        <h3>Take Profits</h3>
+        <div id="tableTakeProfits"></div>
+      </div>
+      <div class="table-section">
+        <h3>Limit Orders</h3>
+        <div id="tableLimitOrders"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inclusion d'ethers.js -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.6.9/dist/ethers.umd.min.js"></script>
+  <script>
+    /***********************
+     * Configuration DEMO avec clé privée sur Avalanche Fuji
+     ***********************/
+    // !!! ATTENTION : NE JAMAIS STOCKER VOTRE CLÉ PRIVÉE EN PRODUCTION !!!
+    const DEMO_PRIVATE_KEY = '0xe12f9b03327a875c2d5bf9b40a75cd2effeed46ea508ee595c6bc708c386da8c';
+    // Endpoint public RPC pour Avalanche Fuji Chain
+    const RPC_URL = 'https://api.avax-test.network/ext/bc/C/rpc';
+
+    let contract;
+    let wallet;
+    // Adresse et ABI du contrat
+    const contractAddress = '0xAc51dD5ad45DC78661646F1E62aA0E8C60aF086B';
+    const contractABI = [
+      // Fonctions de fermeture de positions
+      {
+        "inputs": [
+          { "internalType": "uint256", "name": "positionId", "type": "uint256" },
+          { "internalType": "bytes[]", "name": "priceUpdate", "type": "bytes[]" }
+        ],
+        "name": "closePositionLiquidation",
+        "outputs": [
+          { "internalType": "bool", "name": "closed", "type": "bool" },
+          { "internalType": "uint256", "name": "finalAmount", "type": "uint256" },
+          { "internalType": "int256", "name": "profit", "type": "int256" }
+        ],
+        "stateMutability": "payable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          { "internalType": "uint256", "name": "positionId", "type": "uint256" },
+          { "internalType": "bytes[]", "name": "priceUpdate", "type": "bytes[]" }
+        ],
+        "name": "closePositionStopLoss",
+        "outputs": [
+          { "internalType": "bool", "name": "closed", "type": "bool" },
+          { "internalType": "uint256", "name": "finalAmount", "type": "uint256" },
+          { "internalType": "int256", "name": "profit", "type": "int256" }
+        ],
+        "stateMutability": "payable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          { "internalType": "uint256", "name": "positionId", "type": "uint256" },
+          { "internalType": "bytes[]", "name": "priceUpdate", "type": "bytes[]" }
+        ],
+        "name": "closePositionTakeProfit",
+        "outputs": [
+          { "internalType": "bool", "name": "closed", "type": "bool" },
+          { "internalType": "uint256", "name": "finalAmount", "type": "uint256" },
+          { "internalType": "int256", "name": "profit", "type": "int256" }
+        ],
+        "stateMutability": "payable",
+        "type": "function"
+      },
+      // Fonction view pour récupérer les Liquidation Prices
+      {
+        "inputs": [],
+        "name": "getAllLiquidationPrices",
+        "outputs": [
+          { "internalType": "uint256[]", "name": "positionIds", "type": "uint256[]" },
+          { "internalType": "bytes32[]", "name": "assetIds", "type": "bytes32[]" },
+          { "internalType": "int256[]", "name": "liqPrices", "type": "int256[]" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      // Fonction view pour récupérer les Stop Losses
+      {
+        "inputs": [],
+        "name": "getAllStopLosses",
+        "outputs": [
+          { "internalType": "uint256[]", "name": "positionIds", "type": "uint256[]" },
+          { "internalType": "bytes32[]", "name": "assetIds", "type": "bytes32[]" },
+          { "internalType": "int256[]", "name": "stopLossValues", "type": "int256[]" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      // Fonction view pour récupérer les Take Profits
+      {
+        "inputs": [],
+        "name": "getAllTakeProfits",
+        "outputs": [
+          { "internalType": "uint256[]", "name": "positionIds", "type": "uint256[]" },
+          { "internalType": "bytes32[]", "name": "assetIds", "type": "bytes32[]" },
+          { "internalType": "int256[]", "name": "takeProfitValues", "type": "int256[]" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      // Fonction view pour récupérer les Limit Orders
+      {
+        "inputs": [],
+        "name": "getAllLimitOrders",
+        "outputs": [
+          { "internalType": "uint256[]", "name": "orderIds", "type": "uint256[]" },
+          { "internalType": "address[]", "name": "traders", "type": "address[]" },
+          { "internalType": "bytes32[]", "name": "assetIds", "type": "bytes32[]" },
+          { "internalType": "int256[]", "name": "targetPrices", "type": "int256[]" },
+          { "internalType": "int256[]", "name": "orderStopLosses", "type": "int256[]" },
+          { "internalType": "int256[]", "name": "orderTakeProfits", "type": "int256[]" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      // Fonction pour exécuter une Limit Order
+      {
+        "inputs": [
+          { "internalType": "uint256", "name": "orderId", "type": "uint256" },
+          { "internalType": "bytes[]", "name": "priceUpdate", "type": "bytes[]" }
+        ],
+        "name": "executeLimitOrder",
+        "outputs": [
+          { "internalType": "bool", "name": "executed", "type": "bool" },
+          { "internalType": "uint256", "name": "positionId", "type": "uint256" }
+        ],
+        "stateMutability": "payable",
+        "type": "function"
+      }
+    ];
+
+    /***********************
+     * Données live de l'API Hermes
+     ***********************/
+    // Nouvel URL de l’API Hermes
+    const API_URL = 'https://hermes.pyth.network/v2/updates/price/stream?ids[]=0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace';
+    const liveData = document.getElementById('live-data');
+    let apiRawPrice = 0;
+    let latestPriceUpdate = [];
+
+    function formatPrice(value, expo) {
+      return (Number(value) * Math.pow(10, expo)).toFixed(8);
+    }
+
+    function updateDisplay(data) {
+      const parsed = data.parsed[0];
+      const binary = data.binary;
+      latestPriceUpdate = binary.data.map(d => "0x" + d);
+      apiRawPrice = Number(parsed.price.price);
+      const html = `
+        <div class="data-box">
+          <div class="price-info">
+            <div>Price: ${formatPrice(parsed.price.price, parsed.price.expo)}</div>
+            <div>Confidence: ±${formatPrice(parsed.price.conf, parsed.price.expo)}</div>
+            <div>EMA: ${formatPrice(parsed.ema_price.price, parsed.ema_price.expo)}</div>
+          </div>
+          <div class="hex-data">
+            RAW: [${latestPriceUpdate.join(", ")}]
+          </div>
+          <div class="timestamp">
+            ${new Date(parsed.price.publish_time * 1000).toLocaleString()} (Slot: ${parsed.metadata.slot})
+          </div>
+        </div>
+      `;
+      liveData.innerHTML = html;
+    }
+
+    const eventSource = new EventSource(API_URL);
+    eventSource.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        updateDisplay(data);
+      } catch (error) {
+        console.error('Erreur lors de l’analyse des données de l’API:', error);
+      }
+    };
+    eventSource.onerror = (err) => {
+      liveData.innerHTML = `<div class="data-box" style="color: #ff4444">
+        Connection error - attempting to reconnect...
+      </div>`;
+    };
+
+    /***********************
+     * Fonctions d'auto-trigger pour fermer/exécuter les ordres
+     ***********************/
+    let triggeredLiquidation = new Set();
+    let triggeredStopLoss = new Set();
+    let triggeredTakeProfit = new Set();
+    let triggeredLimitOrder = new Set();
+
+    async function autoCloseLiquidation(positionId) {
+      if (!contract || latestPriceUpdate.length === 0) return;
+      try {
+        console.log(`Auto-closing liquidation for position ${positionId}`);
+        const tx = await contract.closePositionLiquidation(positionId, latestPriceUpdate);
+        await tx.wait();
+        console.log(`Auto liquidation close triggered for position ${positionId}: ${tx.hash}`);
+      } catch (error) {
+        if (error.code === "REPLACEMENT_UNDERPRICED" || (error.message && error.message.includes("replacement fee too low"))) {
+          console.log(`Transaction liquidation pour position ${positionId} déjà en attente. Ignoré.`);
+          return;
+        }
+        console.error('Erreur lors de l’auto-close liquidation:', error);
+      }
+    }
+
+    async function autoCloseStopLoss(positionId) {
+      if (!contract || latestPriceUpdate.length === 0) return;
+      try {
+        console.log(`Auto-closing stop loss for position ${positionId}`);
+        const tx = await contract.closePositionStopLoss(positionId, latestPriceUpdate);
+        await tx.wait();
+        console.log(`Auto stop loss close triggered for position ${positionId}: ${tx.hash}`);
+      } catch (error) {
+        if (error.code === "REPLACEMENT_UNDERPRICED" || (error.message && error.message.includes("replacement fee too low"))) {
+          console.log(`Transaction stop loss pour position ${positionId} déjà en attente. Ignoré.`);
+          return;
+        }
+        console.error('Erreur lors de l’auto-close stop loss:', error);
+      }
+    }
+
+    async function autoCloseTakeProfit(positionId) {
+      if (!contract || latestPriceUpdate.length === 0) return;
+      try {
+        console.log(`Auto-closing take profit for position ${positionId}`);
+        const tx = await contract.closePositionTakeProfit(positionId, latestPriceUpdate);
+        await tx.wait();
+        console.log(`Auto take profit close triggered for position ${positionId}: ${tx.hash}`);
+      } catch (error) {
+        if (error.code === "REPLACEMENT_UNDERPRICED" || (error.message && error.message.includes("replacement fee too low"))) {
+          console.log(`Transaction take profit pour position ${positionId} déjà en attente. Ignoré.`);
+          return;
+        }
+        console.error('Erreur lors de l’auto-close take profit:', error);
+      }
+    }
+
+    async function autoExecuteLimitOrder(orderId) {
+      if (!contract || latestPriceUpdate.length === 0) return;
+      try {
+        console.log(`Auto-executing limit order ${orderId}`);
+        const tx = await contract.executeLimitOrder(orderId, latestPriceUpdate);
+        await tx.wait();
+        console.log(`Auto limit order executed for order ${orderId}: ${tx.hash}`);
+      } catch (error) {
+        if (error.code === "REPLACEMENT_UNDERPRICED" || (error.message && error.message.includes("replacement fee too low"))) {
+          console.log(`Transaction limit order ${orderId} déjà en attente. Ignoré.`);
+          return;
+        }
+        console.error('Erreur lors de l’auto-execution de la limit order:', error);
+      }
+    }
+
+    /***********************
+     * Chargement et affichage des tableaux avec auto-trigger
+     ***********************/
+    function isWithinThreshold(ratio) {
+      return Math.abs(ratio - 1) <= 0.001;
+    }
+
+    async function loadLiquidationPrices() {
+      if (contract) {
+        try {
+          const result = await contract.getAllLiquidationPrices();
+          const positionIds = result[0];
+          const assetIds = result[1];
+          const liqPrices = result[2];
+          let html = `<table>
+                        <tr>
+                          <th>Position ID</th>
+                          <th>Asset ID</th>
+                          <th>Liquidation Price</th>
+                          <th>Ratio (API / Target)</th>
+                        </tr>`;
+          for (let i = 0; i < positionIds.length; i++) {
+            const target = Number(liqPrices[i]);
+            const ratio = target !== 0 ? apiRawPrice / target : 0;
+            const rowClass = isWithinThreshold(ratio) ? 'green' : '';
+            html += `<tr class="${rowClass}">
+                      <td>${positionIds[i]}</td>
+                      <td>${assetIds[i]}</td>
+                      <td>${liqPrices[i]}</td>
+                      <td>${ratio.toFixed(6)}</td>
+                    </tr>`;
+            if (rowClass === 'green' && !triggeredLiquidation.has(positionIds[i].toString())) {
+              triggeredLiquidation.add(positionIds[i].toString());
+              autoCloseLiquidation(positionIds[i]);
+            }
+          }
+          html += `</table>`;
+          document.getElementById('tableLiquidation').innerHTML = html;
+        } catch (error) {
+          console.error('Erreur lors du chargement des Liquidation Prices:', error);
+        }
+      }
+    }
+
+    async function loadStopLosses() {
+      if (contract) {
+        try {
+          const result = await contract.getAllStopLosses();
+          const positionIds = result[0];
+          const assetIds = result[1];
+          const stopLossValues = result[2];
+          let html = `<table>
+                        <tr>
+                          <th>Position ID</th>
+                          <th>Asset ID</th>
+                          <th>Stop Loss Value</th>
+                          <th>Ratio (API / Target)</th>
+                        </tr>`;
+          for (let i = 0; i < positionIds.length; i++) {
+            const target = Number(stopLossValues[i]);
+            const ratio = target !== 0 ? apiRawPrice / target : 0;
+            const rowClass = isWithinThreshold(ratio) ? 'green' : '';
+            html += `<tr class="${rowClass}">
+                      <td>${positionIds[i]}</td>
+                      <td>${assetIds[i]}</td>
+                      <td>${stopLossValues[i]}</td>
+                      <td>${ratio.toFixed(6)}</td>
+                    </tr>`;
+            if (rowClass === 'green' && !triggeredStopLoss.has(positionIds[i].toString())) {
+              triggeredStopLoss.add(positionIds[i].toString());
+              autoCloseStopLoss(positionIds[i]);
+            }
+          }
+          html += `</table>`;
+          document.getElementById('tableStopLosses').innerHTML = html;
+        } catch (error) {
+          console.error('Erreur lors du chargement des Stop Losses:', error);
+        }
+      }
+    }
+
+    async function loadTakeProfits() {
+      if (contract) {
+        try {
+          const result = await contract.getAllTakeProfits();
+          const positionIds = result[0];
+          const assetIds = result[1];
+          const takeProfitValues = result[2];
+          let html = `<table>
+                        <tr>
+                          <th>Position ID</th>
+                          <th>Asset ID</th>
+                          <th>Take Profit Value</th>
+                          <th>Ratio (API / Target)</th>
+                        </tr>`;
+          for (let i = 0; i < positionIds.length; i++) {
+            const target = Number(takeProfitValues[i]);
+            const ratio = target !== 0 ? apiRawPrice / target : 0;
+            const rowClass = isWithinThreshold(ratio) ? 'green' : '';
+            html += `<tr class="${rowClass}">
+                      <td>${positionIds[i]}</td>
+                      <td>${assetIds[i]}</td>
+                      <td>${takeProfitValues[i]}</td>
+                      <td>${ratio.toFixed(6)}</td>
+                    </tr>`;
+            if (rowClass === 'green' && !triggeredTakeProfit.has(positionIds[i].toString())) {
+              triggeredTakeProfit.add(positionIds[i].toString());
+              autoCloseTakeProfit(positionIds[i]);
+            }
+          }
+          html += `</table>`;
+          document.getElementById('tableTakeProfits').innerHTML = html;
+        } catch (error) {
+          console.error('Erreur lors du chargement des Take Profits:', error);
+        }
+      }
+    }
+
+    async function loadLimitOrders() {
+      if (contract) {
+        try {
+          const result = await contract.getAllLimitOrders();
+          const orderIds = result[0];
+          const traders = result[1];
+          const assetIds = result[2];
+          const targetPrices = result[3];
+          let html = `<table>
+                        <tr>
+                          <th>Order ID</th>
+                          <th>Trader</th>
+                          <th>Asset ID</th>
+                          <th>Target Price</th>
+                          <th>Ratio (API / Target)</th>
+                        </tr>`;
+          for (let i = 0; i < orderIds.length; i++) {
+            const target = Number(targetPrices[i]);
+            const ratio = target !== 0 ? apiRawPrice / target : 0;
+            const rowClass = isWithinThreshold(ratio) ? 'green' : '';
+            html += `<tr class="${rowClass}">
+                      <td>${orderIds[i]}</td>
+                      <td>${traders[i]}</td>
+                      <td>${assetIds[i]}</td>
+                      <td>${targetPrices[i]}</td>
+                      <td>${ratio.toFixed(6)}</td>
+                    </tr>`;
+            if (rowClass === 'green' && !triggeredLimitOrder.has(orderIds[i].toString())) {
+              triggeredLimitOrder.add(orderIds[i].toString());
+              autoExecuteLimitOrder(orderIds[i]);
+            }
+          }
+          html += `</table>`;
+          document.getElementById('tableLimitOrders').innerHTML = html;
+        } catch (error) {
+          console.error('Erreur lors du chargement des Limit Orders:', error);
+        }
+      }
+    }
+
+    // Fonction commune pour charger tous les tableaux
+    function loadAllTables() {
+      loadLiquidationPrices();
+      loadStopLosses();
+      loadTakeProfits();
+      loadLimitOrders();
+    }
+
+    /***********************
+     * Fonction manuelle pour closePositionStopLoss (exemple)
+     ***********************/
+    async function closeStopLoss() {
+      const positionId = document.getElementById('positionIdStopLoss').value;
+      const demoPriceUpdate = ["0x123abc", "0x456def"];
+      if (contract && positionId) {
+        try {
+          const tx = await contract.closePositionStopLoss(positionId, demoPriceUpdate);
+          await tx.wait();
+          document.getElementById('resultStopLoss').innerText = `Transaction réussie. Hash: ${tx.hash}`;
+        } catch (error) {
+          console.error('Erreur lors de closePositionStopLoss:', error);
+          document.getElementById('resultStopLoss').innerText = 'Erreur lors de l’appel.';
+        }
+      } else {
+        alert('Veuillez entrer un ID de position.');
+      }
+    }
+
+    /***********************
+     * Connexion via clé privée sur Avalanche Fuji
+     ***********************/
+    async function connect() {
+      try {
+        const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+        wallet = new ethers.Wallet(DEMO_PRIVATE_KEY, provider);
+        contract = new ethers.Contract(contractAddress, contractABI, wallet);
+        document.getElementById('wallet-address').innerText = `Connecté : ${wallet.address}`;
+        console.log("Connecté avec le wallet", wallet.address);
+        loadAllTables();
+        setInterval(loadAllTables, 5000);
+      } catch (error) {
+        console.error("Erreur lors de la connexion avec la clé privée:", error);
+      }
+    }
+  </script>
+</body>
+</html>

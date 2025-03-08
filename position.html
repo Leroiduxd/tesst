@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interface de gestion des positions – Calculs dynamiques</title>
+  <!-- Inclusion d'Ethers.js -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.6.9/dist/ethers.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    button { padding: 8px 16px; margin: 5px; }
+    table { border-collapse: collapse; margin-bottom: 20px; }
+    table, th, td { border: 1px solid #ccc; padding: 5px; }
+    h3 { margin-top: 40px; }
+    .counter { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Gestion des positions – Calcul dynamique du profit et de la taille en lots</h1>
+  <button onclick="connect()">Connecter le Wallet</button>
+  <p id="wallet-address"></p>
+  
+  <div id="formattedResult"></div>
+
+  <script>
+    let provider, signer, contract;
+    const contractAddress = "0xac51dd5ad45dc78661646f1e62aa0e8c60af086b";
+    const contractABI = [
+      { "inputs": [{"internalType": "address","name": "trader","type": "address"}],
+        "name": "getTraderAllIds",
+        "outputs": [
+          {"internalType": "uint256[]","name": "openPositionIds","type": "uint256[]"},
+          {"internalType": "uint256[]","name": "closedPositionIds","type": "uint256[]"},
+          {"internalType": "uint256[]","name": "limitOrderIds","type": "uint256[]"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      { "inputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+        "name": "positions",
+        "outputs": [
+          {"internalType": "uint256","name": "id","type": "uint256"},
+          {"internalType": "address","name": "trader","type": "address"},
+          {"internalType": "bool","name": "isShort","type": "bool"},
+          {"internalType": "uint256","name": "size","type": "uint256"},
+          {"internalType": "int256","name": "openPrice","type": "int256"},
+          {"internalType": "uint256","name": "timestamp","type": "uint256"},
+          {"internalType": "uint256","name": "openBlock","type": "uint256"},
+          {"internalType": "bytes32","name": "assetId","type": "bytes32"},
+          {"internalType": "uint256","name": "leverage","type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      { "inputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+        "name": "closedPositions",
+        "outputs": [
+          {"internalType": "uint256","name": "id","type": "uint256"},
+          {"internalType": "address","name": "trader","type": "address"},
+          {"internalType": "bool","name": "isShort","type": "bool"},
+          {"internalType": "uint256","name": "size","type": "uint256"},
+          {"internalType": "int256","name": "openPrice","type": "int256"},
+          {"internalType": "int256","name": "closePrice","type": "int256"},
+          {"internalType": "uint256","name": "openTimestamp","type": "uint256"},
+          {"internalType": "uint256","name": "closeTimestamp","type": "uint256"},
+          {"internalType": "uint256","name": "openBlock","type": "uint256"},
+          {"internalType": "uint256","name": "closeBlock","type": "uint256"},
+          {"internalType": "bytes32","name": "assetId","type": "bytes32"},
+          {"internalType": "uint256","name": "finalAmount","type": "uint256"},
+          {"internalType": "int256","name": "profit","type": "int256"},
+          {"internalType": "uint256","name": "leverage","type": "uint256"},
+          {"internalType": "int256","name": "liquidationPrice","type": "int256"},
+          {"internalType": "int256","name": "stopLoss","type": "int256"},
+          {"internalType": "int256","name": "takeProfit","type": "int256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      { "inputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+        "name": "limitOrders",
+        "outputs": [
+          {"internalType": "uint256","name": "id","type": "uint256"},
+          {"internalType": "address","name": "trader","type": "address"},
+          {"internalType": "bool","name": "isShort","type": "bool"},
+          {"internalType": "uint256","name": "size","type": "uint256"},
+          {"internalType": "uint256","name": "leverage","type": "uint256"},
+          {"internalType": "bytes32","name": "assetId","type": "bytes32"},
+          {"internalType": "int256","name": "targetPrice","type": "int256"},
+          {"internalType": "int256","name": "stopLoss","type": "int256"},
+          {"internalType": "int256","name": "takeProfit","type": "int256"},
+          {"internalType": "uint256","name": "timestamp","type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      { "inputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+        "name": "stopLosses",
+        "outputs": [{"internalType": "int256","name": "","type": "int256"}],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      { "inputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+        "name": "takeProfits",
+        "outputs": [{"internalType": "int256","name": "","type": "int256"}],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      { "inputs": [{"internalType": "uint256","name": "","type": "uint256"}],
+        "name": "liquidationPrices",
+        "outputs": [{"internalType": "int256","name": "","type": "int256"}],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      { "inputs": [
+          {"internalType": "uint256","name": "positionId","type": "uint256"},
+          {"internalType": "int256","name": "newStopLoss","type": "int256"}
+        ],
+        "name": "updateStopLoss",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      { "inputs": [
+          {"internalType": "uint256","name": "positionId","type": "uint256"},
+          {"internalType": "int256","name": "newTakeProfit","type": "int256"}
+        ],
+        "name": "updateTakeProfit",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      { "inputs": [
+          {"internalType": "uint256","name": "positionId","type": "uint256"},
+          {"internalType": "bytes[]","name": "priceUpdate","type": "bytes[]"}
+        ],
+        "name": "closePosition",
+        "outputs": [
+          {"internalType": "uint256","name": "finalAmount","type": "uint256"},
+          {"internalType": "int256","name": "profit","type": "int256"}
+        ],
+        "stateMutability": "payable",
+        "type": "function"
+      },
+      { "inputs": [
+          {"internalType": "uint256","name": "orderId","type": "uint256"}
+        ],
+        "name": "cancelLimitOrder",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      { "anonymous": false,
+        "inputs": [
+          {"indexed": true,"internalType": "uint256","name": "positionId","type": "uint256"},
+          {"indexed": true,"internalType": "address","name": "trader","type": "address"},
+          {"indexed": false,"internalType": "int256","name": "profit","type": "int256"},
+          {"indexed": false,"internalType": "uint256","name": "closingTimestamp","type": "uint256"}
+        ],
+        "name": "PositionClosed",
+        "type": "event"
+      },
+      { "anonymous": false,
+        "inputs": [
+          {"indexed": true,"internalType": "uint256","name": "positionId","type": "uint256"},
+          {"indexed": true,"internalType": "address","name": "trader","type": "address"},
+          {"indexed": false,"internalType": "int256","name": "openPrice","type": "int256"},
+          {"indexed": false,"internalType": "int256","name": "liquidationPrice","type": "int256"},
+          {"indexed": false,"internalType": "uint256","name": "size","type": "uint256"},
+          {"indexed": false,"internalType": "bool","name": "isShort","type": "bool"},
+          {"indexed": false,"internalType": "uint256","name": "leverage","type": "uint256"},
+          {"indexed": false,"internalType": "int256","name": "stopLoss","type": "int256"},
+          {"indexed": false,"internalType": "int256","name": "takeProfit","type": "int256"}
+        ],
+        "name": "PositionOpened",
+        "type": "event"
+      },
+      { "anonymous": false,
+        "inputs": [
+          {"indexed": true,"internalType": "uint256","name": "orderId","type": "uint256"},
+          {"indexed": true,"internalType": "address","name": "trader","type": "address"}
+        ],
+        "name": "LimitOrderCanceled",
+        "type": "event"
+      },
+      { "anonymous": false,
+        "inputs": [
+          {"indexed": true,"internalType": "uint256","name": "orderId","type": "uint256"},
+          {"indexed": true,"internalType": "uint256","name": "positionId","type": "uint256"},
+          {"indexed": true,"internalType": "address","name": "trader","type": "address"},
+          {"indexed": false,"internalType": "int256","name": "executionPrice","type": "int256"}
+        ],
+        "name": "LimitOrderExecuted",
+        "type": "event"
+      }
+    ];
+
+    // --------------------
+    // Fonctions de formatage
+    function dynamicFormat(value) {
+      let intPart = Math.floor(Math.abs(value)).toString();
+      return (intPart.length >= 3) ? value.toFixed(2) : value.toFixed(4);
+    }
+    // Pour les montants en USDC, on affiche toujours 2 décimales.
+    function usdcFormat(value) {
+      return value.toFixed(2);
+    }
+    // Conversion par défaut (utilisée pour la plupart des champs)
+    function convertField(fieldLabel, value) {
+      const lowerLabel = fieldLabel.toLowerCase();
+      if(lowerLabel.includes("timestamp")) {
+        return formatTimestamp(value);
+      }
+      if(lowerLabel === "size" || lowerLabel === "finalamount") {
+        return usdcFormat(Number(ethers.utils.formatUnits(value, 6)));
+      }
+      if(lowerLabel === "profit") {
+        return Number(ethers.utils.formatUnits(value, 6)).toFixed(6);
+      }
+      if(lowerLabel === "isshort") {
+        return value ? "short" : "long";
+      }
+      return value.toString();
+    }
+
+    function formatTimestamp(ts) {
+      const date = new Date(Number(ts) * 1000);
+      const dd = String(date.getDate()).padStart(2, '0');
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const yyyy = date.getFullYear();
+      const hh = String(date.getHours()).padStart(2, '0');
+      const min = String(date.getMinutes()).padStart(2, '0');
+      const ss = String(date.getSeconds()).padStart(2, '0');
+      return `${dd}-${mm}-${yyyy} at ${hh}:${min}:${ss}`;
+    }
+    function applyExpo(value, expo) {
+      return Number(value) * Math.pow(10, expo);
+    }
+    
+    // --------------------
+    // Variables de cache
+    let cachedOpenPositions = [];
+    let cachedStopLosses = [];
+    let cachedTakeProfits = [];
+    let cachedLiquidationPrices = [];
+    let cachedClosedPositions = [];
+    let cachedLimitOrders = [];
+    let stopLossInputs = {};
+    let takeProfitInputs = {};
+    let livePrices = {};
+
+    // --------------------
+    // Rendu générique des tables (Closed Positions et Limit Orders)
+    function renderTable(category, data, fields) {
+      let html = `<h3>${category} (${data.length})</h3>`;
+      data.forEach((item, index) => {
+        html += `<h4>${category} ${index}</h4>`;
+        html += '<table>';
+        fields.forEach((field, i) => {
+          const rawVal = item[i];
+          let displayValue;
+          // Pour Closed Positions : traiter openPrice et closePrice
+          if (category === "Closed Positions" && (field.label === "openPrice" || field.label === "closePrice")) {
+            // assetId est à l'index 10 et leverage à l'index 13
+            let assetId = item[10].toString();
+            let expo = (livePrices[assetId] && typeof livePrices[assetId].expo !== 'undefined') ? livePrices[assetId].expo : 0;
+            let valueWithExpo = applyExpo(rawVal.toString(), expo);
+            let leverage = Number(item[13].toString());
+            displayValue = (valueWithExpo === 0 && leverage !== 1) ? "no data" : usdcFormat(valueWithExpo);
+          }
+          // Pour Limit Orders : traiter targetPrice (index 6) ; assetId à l'index 5 et leverage à l'index 4
+          else if (category === "Limit Orders" && field.label === "targetPrice") {
+            let assetId = item[5].toString();
+            let expo = (livePrices[assetId] && typeof livePrices[assetId].expo !== 'undefined') ? livePrices[assetId].expo : 0;
+            let valueWithExpo = applyExpo(rawVal.toString(), expo);
+            let leverage = Number(item[4].toString());
+            displayValue = (valueWithExpo === 0 && leverage !== 1) ? "no data" : usdcFormat(valueWithExpo);
+          }
+          else {
+            displayValue = convertField(field.label, rawVal);
+          }
+          html += `<tr>
+                     <td>${i}: ${field.type} - ${field.label}</td>
+                     <td>${displayValue}</td>
+                   </tr>`;
+        });
+        if (category === "Limit Orders") {
+          html += `<tr>
+                     <td colspan="2">
+                       <button onclick="cancelLimitOrder(${item[0]})">Cancel Limit Order</button>
+                     </td>
+                   </tr>`;
+        }
+        html += '</table>';
+      });
+      return html;
+    }
+    
+    // --------------------
+    // Initialisation du flux de prix via Hermes
+    function initPriceStream(assetId) {
+      if (livePrices[assetId] && livePrices[assetId].eventSource) return;
+      const streamUrl = `https://hermes.pyth.network/v2/updates/price/stream?ids[]=${assetId}`;
+      const eventSource = new EventSource(streamUrl);
+      eventSource.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const parsed = data.parsed[0];
+          livePrices[assetId] = {
+            currentPrice: Number(parsed.price.price) * Math.pow(10, parsed.price.expo),
+            expo: Number(parsed.price.expo),
+            eventSource: eventSource
+          };
+          updatePositionsDisplay();
+        } catch (error) {
+          console.error('Erreur lors du parsing du flux pour asset', assetId, error);
+        }
+      };
+      eventSource.onerror = (err) => {
+        console.error("Erreur de connexion au flux pour asset", assetId, err);
+      };
+      livePrices[assetId] = { currentPrice: 0, expo: 0, eventSource: eventSource };
+    }
+    
+    // --------------------
+    // Fonctions d'ajustement des inputs
+    function increaseInput(inputId, amount) {
+      const inputElem = document.getElementById(inputId);
+      let currentValue = parseFloat(inputElem.value) || 0;
+      inputElem.value = currentValue + amount;
+      if(inputId.startsWith("stopLossInput-")) {
+        stopLossInputs[inputId.replace("stopLossInput-", "")] = inputElem.value;
+      } else if(inputId.startsWith("takeProfitInput-")) {
+        takeProfitInputs[inputId.replace("takeProfitInput-", "")] = inputElem.value;
+      }
+    }
+    function decreaseInput(inputId, amount) {
+      const inputElem = document.getElementById(inputId);
+      let currentValue = parseFloat(inputElem.value) || 0;
+      inputElem.value = currentValue - amount;
+      if(inputId.startsWith("stopLossInput-")) {
+        stopLossInputs[inputId.replace("stopLossInput-", "")] = inputElem.value;
+      } else if(inputId.startsWith("takeProfitInput-")) {
+        takeProfitInputs[inputId.replace("takeProfitInput-", "")] = inputElem.value;
+      }
+    }
+    
+    // --------------------
+    // Mise à jour de l'affichage
+    function updatePositionsDisplay() {
+      const activeElem = document.activeElement;
+      if (activeElem && activeElem.id && 
+         (activeElem.id.startsWith("stopLossInput-") || activeElem.id.startsWith("takeProfitInput-"))) {
+        return;
+      }
+      let html = `<h2>Résultats</h2>`;
+      html += `<p class="counter">Total Open Positions : ${cachedOpenPositions.length}</p>`;
+      cachedOpenPositions.forEach((position, index) => {
+        const assetId = position[7].toString();
+        initPriceStream(assetId);
+        const priceData = livePrices[assetId] || { currentPrice: 0, expo: 0 };
+        html += renderOpenPosition(
+          position,
+          cachedStopLosses[index],
+          cachedTakeProfits[index],
+          cachedLiquidationPrices[index],
+          priceData
+        );
+      });
+      html += `<div id="closedPositionsDiv">` +
+              renderTable("Closed Positions", cachedClosedPositions, [
+                { label: "id", type: "uint256" },
+                { label: "trader", type: "address" },
+                { label: "isShort", type: "bool" },
+                { label: "size", type: "uint256" },
+                { label: "openPrice", type: "int256" },
+                { label: "closePrice", type: "int256" },
+                { label: "openTimestamp", type: "uint256" },
+                { label: "closeTimestamp", type: "uint256" },
+                { label: "openBlock", type: "uint256" },
+                { label: "closeBlock", type: "uint256" },
+                { label: "assetId", type: "bytes32" },
+                { label: "finalAmount", type: "uint256" },
+                { label: "profit", type: "int256" },
+                { label: "leverage", type: "uint256" },
+                { label: "liquidationPrice", type: "int256" },
+                { label: "stopLoss", type: "int256" },
+                { label: "takeProfit", type: "int256" }
+              ]) +
+              `</div>`;
+      html += `<div id="limitOrdersDiv">` +
+              renderTable("Limit Orders", cachedLimitOrders, [
+                { label: "id", type: "uint256" },
+                { label: "trader", type: "address" },
+                { label: "isShort", type: "bool" },
+                { label: "size", type: "uint256" },
+                { label: "leverage", type: "uint256" },
+                { label: "assetId", type: "bytes32" },
+                { label: "targetPrice", type: "int256" },
+                { label: "stopLoss", type: "int256" },
+                { label: "takeProfit", type: "int256" },
+                { label: "timestamp", type: "uint256" }
+              ]) +
+              `</div>`;
+      document.getElementById("formattedResult").innerHTML = html;
+    }
+    
+    // --------------------
+    // Rendu d'une open position (inchangé)
+    function renderOpenPosition(position, stopLoss, takeProfit, liquidationPrice, currentPriceData) {
+      const id = convertField("id", position[0]);
+      const assetId = position[7].toString();
+      const expo = currentPriceData.expo;
+      const currentPrice = currentPriceData.currentPrice;
+      const openPriceConverted = applyExpo(position[4].toString(), expo);
+      const stopLossConverted = applyExpo(stopLoss.toString(), expo);
+      const takeProfitConverted = applyExpo(takeProfit.toString(), expo);
+      const liquidationPriceConverted = applyExpo(liquidationPrice.toString(), expo);
+      const sizeUSDC = Number(ethers.utils.formatUnits(position[3], 6));
+      const leverage = Number(position[8].toString());
+      const notionalValue = sizeUSDC * leverage;
+      const lotSize = notionalValue / openPriceConverted;
+      const isShort = position[2];
+      const profitUSDC = isShort 
+                          ? (openPriceConverted - currentPrice) * lotSize 
+                          : (currentPrice - openPriceConverted) * lotSize;
+      const profitPercent = (profitUSDC / notionalValue) * 100;
+      
+      const stopLossVal = stopLossInputs[id] || "";
+      const takeProfitVal = takeProfitInputs[id] || "";
+      
+      let html = `<h3>Open Position (id: ${id})</h3>`;
+      html += `<table>
+        <tr><td>0: uint256 - id</td><td>${id}</td></tr>
+        <tr><td>1: address - trader</td><td>${position[1]}</td></tr>
+        <tr><td>2: bool - isShort</td><td>${convertField("isShort", position[2])}</td></tr>
+        <tr><td>3: uint256 - size (USDC)</td><td>${usdcFormat(Number(ethers.utils.formatUnits(position[3], 6)))}</td></tr>
+        <tr><td>4: int256 - openPrice</td><td>${usdcFormat(openPriceConverted)}</td></tr>
+        <tr><td>5: uint256 - timestamp</td><td>${convertField("timestamp", position[5])}</td></tr>
+        <tr><td>6: uint256 - openBlock</td><td>${position[6].toString()}</td></tr>
+        <tr><td>7: bytes32 - assetId</td><td>${assetId}</td></tr>
+        <tr><td>8: uint256 - leverage</td><td>${position[8].toString()}</td></tr>
+        <tr><td>9: int256 - stopLoss</td><td>${dynamicFormat(stopLossConverted)}</td></tr>
+        <tr><td>10: int256 - takeProfit</td><td>${dynamicFormat(takeProfitConverted)}</td></tr>
+        <tr><td>11: Liquidation Price</td><td>${dynamicFormat(liquidationPriceConverted)}</td></tr>
+        <tr><td>Lot Size</td><td>${lotSize.toFixed(8)}</td></tr>
+        <tr><td>Notional Value (USDC)</td><td>${usdcFormat(notionalValue)}</td></tr>
+        <tr><td>Current Price (USDC)</td><td>${usdcFormat(currentPrice)}</td></tr>
+        <tr><td>Profit (USDC)</td><td>${usdcFormat(profitUSDC)}</td></tr>
+        <tr><td>Profit (%)</td><td>${profitPercent.toFixed(2)} %</td></tr>
+        <tr>
+          <td>Mise à jour Stop Loss</td>
+          <td>
+            <input type="number" id="stopLossInput-${id}" placeholder="Nouvelle valeur" data-expo="${expo}"
+              value="${stopLossVal}" oninput="stopLossInputs['${id}'] = this.value" onblur="updatePositionsDisplay()" />
+            <button onclick="decreaseInput('stopLossInput-${id}', 10)">-10</button>
+            <button onclick="decreaseInput('stopLossInput-${id}', 1)">-1</button>
+            <button onclick="increaseInput('stopLossInput-${id}', 1)">+1</button>
+            <button onclick="increaseInput('stopLossInput-${id}', 10)">+10</button>
+            <button onclick="updateStopLoss(${id}, '${assetId}', ${expo})">Update Stop Loss</button>
+          </td>
+        </tr>
+        <tr>
+          <td>Mise à jour Take Profit</td>
+          <td>
+            <input type="number" id="takeProfitInput-${id}" placeholder="Nouvelle valeur" data-expo="${expo}"
+              value="${takeProfitVal}" oninput="takeProfitInputs['${id}'] = this.value" onblur="updatePositionsDisplay()" />
+            <button onclick="decreaseInput('takeProfitInput-${id}', 10)">-10</button>
+            <button onclick="decreaseInput('takeProfitInput-${id}', 1)">-1</button>
+            <button onclick="increaseInput('takeProfitInput-${id}', 1)">+1</button>
+            <button onclick="increaseInput('takeProfitInput-${id}', 10)">+10</button>
+            <button onclick="updateTakeProfit(${id}, '${assetId}', ${expo})">Update Take Profit</button>
+          </td>
+        </tr>
+        <tr>
+          <td>Close Position</td>
+          <td><button onclick="closePosition(${id}, '${assetId}')">Close Position</button></td>
+        </tr>
+      </table><br/>`;
+      return html;
+    }
+    
+    // --------------------
+    // Fonctions d'interaction avec le contrat
+    async function connect() {
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          await ethereum.request({ method: 'eth_requestAccounts' });
+          provider = new ethers.providers.Web3Provider(window.ethereum);
+          signer = provider.getSigner();
+          const address = await signer.getAddress();
+          document.getElementById('wallet-address').innerText = "Wallet connecté : " + address;
+          contract = new ethers.Contract(contractAddress, contractABI, signer);
+          contract.on("PositionOpened", (positionId, trader, openPrice, liquidationPrice, size, isShort, leverage, stopLoss, takeProfit, event) => {
+            console.log("PositionOpened", positionId.toString());
+            fetchPositions();
+          });
+          contract.on("PositionClosed", (positionId, trader, profit, closingTimestamp, event) => {
+            console.log("PositionClosed", positionId.toString());
+            fetchPositions();
+          });
+          contract.on("LimitOrderCanceled", (orderId, trader, event) => {
+            console.log("LimitOrderCanceled", orderId.toString());
+            fetchPositions();
+          });
+          contract.on("LimitOrderExecuted", (orderId, positionId, trader, executionPrice, event) => {
+            console.log("LimitOrderExecuted", orderId.toString());
+            fetchPositions();
+          });
+          // Chargement automatique dès connexion
+          fetchPositions();
+        } catch (error) {
+          console.error("Erreur lors de la connexion :", error);
+        }
+      } else {
+        alert("MetaMask n'est pas installé. Veuillez l'installer et réessayer.");
+      }
+    }
+    
+    async function fetchPositions() {
+      if (!contract) {
+        alert("Veuillez d'abord connecter votre wallet.");
+        return;
+      }
+      try {
+        const traderAddress = await signer.getAddress();
+        const ids = await contract.getTraderAllIds(traderAddress);
+        const openPositionIds = ids[0];
+        const closedPositionIds = ids[1];
+        const limitOrderIds = ids[2];
+        const openPositions = await Promise.all(
+          openPositionIds.map(id => contract.positions(id))
+        );
+        const closedPositions = await Promise.all(
+          closedPositionIds.map(id => contract.closedPositions(id))
+        );
+        const limitOrders = await Promise.all(
+          limitOrderIds.map(id => contract.limitOrders(id))
+        );
+        const stopLosses = await Promise.all(
+          openPositionIds.map(id => contract.stopLosses(id))
+        );
+        const takeProfits = await Promise.all(
+          openPositionIds.map(id => contract.takeProfits(id))
+        );
+        const liquidationPrices = await Promise.all(
+          openPositionIds.map(id => contract.liquidationPrices(id))
+        );
+        cachedOpenPositions = openPositions;
+        cachedStopLosses = stopLosses;
+        cachedTakeProfits = takeProfits;
+        cachedLiquidationPrices = liquidationPrices;
+        cachedClosedPositions = closedPositions;
+        cachedLimitOrders = limitOrders;
+        openPositions.forEach(position => {
+          const assetId = position[7].toString();
+          initPriceStream(assetId);
+        });
+        updatePositionsDisplay();
+      } catch (error) {
+        console.error("Erreur lors de la récupération des positions :", error);
+      }
+    }
+    
+    async function updateStopLoss(positionId, assetId, expo) {
+      const inputElem = document.getElementById(`stopLossInput-${positionId}`);
+      const userValue = Number(inputElem.value);
+      const newStopLoss = userValue * Math.pow(10, -expo);
+      try {
+        const tx = await contract.updateStopLoss(positionId, newStopLoss);
+        await tx.wait();
+        alert(`Stop Loss de la position ${positionId} mis à jour avec succès.`);
+        fetchPositions();
+      } catch (error) {
+        console.error("Erreur lors de la mise à jour du Stop Loss:", error);
+      }
+    }
+    async function updateTakeProfit(positionId, assetId, expo) {
+      const inputElem = document.getElementById(`takeProfitInput-${positionId}`);
+      const userValue = Number(inputElem.value);
+      const newTakeProfit = userValue * Math.pow(10, -expo);
+      try {
+        const tx = await contract.updateTakeProfit(positionId, newTakeProfit);
+        await tx.wait();
+        alert(`Take Profit de la position ${positionId} mis à jour avec succès.`);
+        fetchPositions();
+      } catch (error) {
+        console.error("Erreur lors de la mise à jour du Take Profit:", error);
+      }
+    }
+    async function closePosition(positionId, assetId) {
+      try {
+        const response = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${assetId}`);
+        const json = await response.json();
+        let priceUpdateHex = json.binary.data[0];
+        if (!priceUpdateHex.startsWith("0x")) {
+          priceUpdateHex = "0x" + priceUpdateHex;
+        }
+        const priceUpdateArray = [priceUpdateHex];
+        const tx = await contract.closePosition(positionId, priceUpdateArray);
+        await tx.wait();
+        alert(`Position ${positionId} fermée avec succès.`);
+        fetchPositions();
+      } catch (error) {
+        console.error("Erreur lors de la fermeture de la position:", error);
+      }
+    }
+    async function cancelLimitOrder(orderId) {
+      try {
+        const tx = await contract.cancelLimitOrder(orderId);
+        await tx.wait();
+        alert(`Ordre limite ${orderId} annulé avec succès.`);
+        fetchPositions();
+      } catch (error) {
+        console.error("Erreur lors de l'annulation de l'ordre limite:", error);
+      }
+    }
+  </script>
+</body>
+</html>
+
+
